@@ -53,7 +53,7 @@ jobs:
           req = urllib.request.Request("https://api.resend.com/emails", data=json.dumps({
               "from": f"box-watch <{os.environ['ALERT_FROM']}>", "to": [os.environ['ALERT_TO']],
               "subject": "[box-watch] box-sg UNREACHABLE", "text": body}).encode(),
-              headers={"Authorization": "Bearer " + os.environ['RESEND_KEY'], "Content-Type": "application/json"})
+              headers={"Authorization": "Bearer " + os.environ['RESEND_KEY'], "Content-Type": "application/json", "User-Agent": "box-watch/1"})
           print("resend:", json.load(urllib.request.urlopen(req, timeout=20)).get("id"))
           PY
 

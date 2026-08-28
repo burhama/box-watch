@@ -1,0 +1,67 @@
+name: box-watch
+# Off-box "is the box alive?" check (BEV-5 P4-M4). Runs on GitHub's schedulers, so it keeps working when box-sg is dead.
+# Every 10 min: probe two hosts through Cloudflare; 2xx/3xx = up (status.shuf.dev answers 302 to Access when the
+# tunnel is healthy). Three tries 30 s apart, then an email via Resend. A dead box → Cloudflare 530 → alert.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+    - cron: '17 3 1 * *'   # monthly keepalive commit so GitHub never auto-disables the schedule (60-day inactivity rule)
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'override probe URL (used once by BEV-5 P5 to force a failure)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    if: github.event.schedule != '17 3 1 * *'
+    runs-on: ubuntu-latest
+    steps:
+      - name: probe
+        id: probe
+        run: |
+          URLS="https://keywars.io/api/health https://status.shuf.dev/"
+          [ -n "${{ github.event.inputs.target }}" ] && URLS="${{ github.event.inputs.target }}"
+          fail=""
+          for u in $URLS; do
+            ok=0
+            for i in 1 2 3; do
+              code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$u" || echo 000)
+              case "$code" in 2*|3*) ok=1; break;; esac
+              echo "try $i: $u -> $code"; sleep 30
+            done
+            [ $ok = 1 ] || fail="$fail $u($code)"
+          done
+          echo "fail=$fail" >> "$GITHUB_OUTPUT"
+          if [ -n "$fail" ]; then echo "DOWN:$fail"; exit 1; fi
+          echo "up: $URLS"
+      - name: alert
+        if: failure()
+        env:
+          RESEND_KEY: ${{ secrets.RESEND_KEY }}
+          ALERT_FROM: ${{ secrets.ALERT_FROM }}
+          ALERT_TO: ${{ secrets.ALERT_TO }}
+          FAIL: ${{ steps.probe.outputs.fail }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, datetime
+          body = f"box-watch (GitHub Actions) could not reach:{os.environ.get('FAIL','')}\nat {datetime.datetime.utcnow():%Y-%m-%d %H:%M} UTC after 3 tries 30 s apart.\nIf the box is up, check the Cloudflare tunnel and Caddy first.\n\n-- box-watch"
+          req = urllib.request.Request("https://api.resend.com/emails", data=json.dumps({
+              "from": f"box-watch <{os.environ['ALERT_FROM']}>", "to": [os.environ['ALERT_TO']],
+              "subject": "[box-watch] box-sg UNREACHABLE", "text": body}).encode(),
+              headers={"Authorization": "Bearer " + os.environ['RESEND_KEY'], "Content-Type": "application/json"})
+          print("resend:", json.load(urllib.request.urlopen(req, timeout=20)).get("id"))
+          PY
+
+  keepalive:
+    if: github.event.schedule == '17 3 1 * *'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          git config user.name box-watch; git config user.email box-watch@users.noreply.github.com
+          date -u +%F > .keepalive; git add .keepalive; git commit -m "keepalive $(date -u +%F)"; git push

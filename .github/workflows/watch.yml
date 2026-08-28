@@ -64,8 +64,8 @@ jobs:
           OUT: ${{ job.status }}
         run: |
           [ -n "$HB" ] || { echo "no KUMA_HEARTBEAT_URL secret"; exit 0; }
-          curl -s -o /dev/null -w 'heartbeat HTTP %{http_code}
-' --max-time 20 "${HB}&job=${OUT}" || true
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "${HB}&job=${OUT}" || echo 000)
+          echo "heartbeat HTTP $code"
 
   keepalive:
     if: github.event.schedule == '17 3 1 * *'

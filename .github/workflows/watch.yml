@@ -1,6 +1,6 @@
 name: box-watch
 # Off-box "is the box alive?" check (BEV-5 P4-M4). Runs on GitHub's schedulers, so it keeps working when box-sg is dead.
-# Every 10 min: probe two hosts through Cloudflare; 2xx/3xx = up (status.shuf.dev answers 302 to Access when the
+# Re-registered 2026-08-28 (BEV-7 P5). Every 10 min: probe two hosts through Cloudflare; 2xx/3xx = up (status.shuf.dev answers 302 to Access when the
 # tunnel is healthy). Three tries 30 s apart, then an email via Resend. A dead box → Cloudflare 530 → alert.
 on:
   schedule:
@@ -56,6 +56,14 @@ jobs:
               headers={"Authorization": "Bearer " + os.environ['RESEND_KEY'], "Content-Type": "application/json", "User-Agent": "box-watch/1"})
           print("resend:", json.load(urllib.request.urlopen(req, timeout=20)).get("id"))
           PY
+
+      - name: heartbeat (the watcher's own liveness → Kuma push monitor; silence = alarm on the box)
+        if: always()
+        env: { HB: ${{ secrets.KUMA_HEARTBEAT_URL }}, OUT: ${{ job.status }} }
+        run: |
+          [ -n "$HB" ] || { echo "no KUMA_HEARTBEAT_URL secret"; exit 0; }
+          curl -s -o /dev/null -w 'heartbeat HTTP %{http_code}
+' --max-time 20 "${HB}&job=${OUT}" || true
 
   keepalive:
     if: github.event.schedule == '17 3 1 * *'

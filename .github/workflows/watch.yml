@@ -59,7 +59,9 @@ jobs:
 
       - name: heartbeat (the watcher's own liveness → Kuma push monitor; silence = alarm on the box)
         if: always()
-        env: { HB: ${{ secrets.KUMA_HEARTBEAT_URL }}, OUT: ${{ job.status }} }
+        env:
+          HB: ${{ secrets.KUMA_HEARTBEAT_URL }}
+          OUT: ${{ job.status }}
         run: |
           [ -n "$HB" ] || { echo "no KUMA_HEARTBEAT_URL secret"; exit 0; }
           curl -s -o /dev/null -w 'heartbeat HTTP %{http_code}
